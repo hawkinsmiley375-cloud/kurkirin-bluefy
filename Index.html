@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kurkirin G4 Bluefy Controller</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-bottom: 10px; }
+        .status { color: #aaa; font-size: 0.9em; margin-bottom: 20px; }
+        .connected { color: #00ff00; }
+        .disconnected { color: #ff4444; }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        button {
+            background-color: #333;
+            border: 1px solid #444;
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:active { background-color: #555; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-connect {
+            background-color: #007bff;
+            width: 100%;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .log-area {
+            margin-top: 20px;
+            width: 100%;
+            max-width: 400px;
+            height: 150px;
+            background: #1e1e1e;
+            border: 1px solid #333;
+            overflow-y: scroll;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Kurkirin G4 Bluefy</h1>
+    <div id="status" class="status disconnected">Disconnected</div>
+
+    <button id="connectBtn" class="btn-connect" onclick="connectScooter()">Connect Scooter</button>
+
+    <div class="grid">
+        <button onclick="sendCommand([0x01, 0x00])" disabled id="btn-lock">Lock Speed</button>
+        <button onclick="sendCommand([0x01, 0x01])" disabled id="btn-unlock">Unlock Speed</button>
+        <button onclick="sendCommand([0x02, 0x01])" disabled id="btn-sport">Sport Mode</button>
+        <button onclick="sendCommand([0x02, 0x00])" disabled id="btn-normal">Normal Mode</button>
+        <button onclick="readBattery()" disabled id="btn-battery">Read Battery</button>
+        <button onclick="toggleLight()" disabled id="btn-light">Toggle Light</button>
+    </div>
+
+    <div id="log" class="log-area"></div>
+
+    <script>
+        let characteristic = null;
+        const logDiv = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+        const buttons = document.querySelectorAll('.grid button');
+
+        // --- CONFIGURATION ---
+        // You MUST replace these UUIDs with the ones found via nRF Connect sniffing
+        // Common Chinese scooter Service UUIDs are often FFE0 or similar.
+        const SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb'; 
+        const CHAR_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function connectScooter() {
+            if (!navigator.bluetooth) {
+                alert("Web Bluetooth not supported. Use Chrome on Android or Safari on iOS.");
+                return;
+            }
+
+            try {
+                log("Requesting Bluetooth Device...");
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [CHAR_UUID]
+                });
+
+                log(`Connecting to ${device.name}...`);
+                const server = await device.gatt.connect();
+                
+                device.addEventListener('gattserverdisconnected', () => {
+                    updateStatus(false);
+                    log("Disconnected from scooter.");
+                });
+
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                characteristic = await service.getCharacteristic(CHAR_UUID);
+
+                updateStatus(true);
+                log("Connected! Ready to send commands.");
+
+            } catch (error) {
+                log(`Error: ${error.message}`);
+            }
+        }
+
+        async function sendCommand(hexArray) {
+            if (!characteristic) {
+                alert("Please connect first!");
+                return;
+            }
+
+            const buffer = new Uint8Array(hexArray).buffer;
+            try {
+                await characteristic.writeValue(buffer);
+                log(`Sent Command: ${hexArray.map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+            } catch (error) {
+                log(`Send Error: ${error.message}`);
+            }
+        }
+
+        async function readBattery() {
+            if (!characteristic) return;
+            
+            // Note: Standard Battery Service is usually 0x180F, but scooters often use custom chars.
+            // If the above CHAR_UUID handles battery, we might need a different read.
+            // For now, assuming we write a specific "Read Battery" command if the char supports notify/write.
+            try {
+                // Example: Send a read request byte if the protocol requires it
+                // await characteristic.writeValue(new Uint8Array([0xFF]).buffer);
+                log("Battery read command sent (Check hex config)");
+            } catch (e) {
+                log(e.message);
+            }
+        }
+
+        async function toggleLight() {
+            // Placeholder for light toggle command
+            sendCommand([0x03, 0x01]); 
+        }
+
+        function updateStatus(isConnected) {
+            if (isConnected) {
+                statusDiv.textContent = "Connected";
+                statusDiv.className = "status connected";
+                buttons.forEach(btn => btn.disabled = false);
+            } else {
+                statusDiv.textContent = "Disconnected";
+                statusDiv.className = "status disconnected";
+                buttons.forEach(btn => btn.disabled = true);
+            }
+        }
+    </script>
+</body>
+</html>
